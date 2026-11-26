@@ -49,9 +49,23 @@ def fa_digits(s) -> str:
 
 # ── keys ────────────────────────────────────────────────────────────────────────
 def keys():
-    master = pc.unb64(os.environ["PUZZLE_MASTER_KEY"].strip())
-    priv = pc.load_private_key(os.environ["PUZZLE_SIGNING_KEY"].strip().replace("\\n", "\n"))
+    master = pc.unb64(re.sub(r"\s", "", os.environ["PUZZLE_MASTER_KEY"]))
+    priv = pc.load_private_key(clean_pem(os.environ["PUZZLE_SIGNING_KEY"]))
+    # The keys must be exactly the ones built into the app, or phones would reject everything.
+    exp = json.load(open(os.path.join(ROOT, "pipeline/keys_expected.json")))
+    if pc.public_key_b64(priv) != exp["signing_public_key"]:
+        raise SystemExit("PUZZLE_SIGNING_KEY is not the app's key — copy it again from ClueFinder-keys.txt")
+    if hmac.new(master, b"check", hashlib.sha256).hexdigest()[:16] != exp["master_check"]:
+        raise SystemExit("PUZZLE_MASTER_KEY is not the app's key — copy it again from ClueFinder-keys.txt")
     return master, priv
+
+
+def clean_pem(raw: str) -> str:
+    """Accepts the key however it was pasted (lost line breaks, extra spaces, with or without header lines)."""
+    body = re.sub(r"-----(BEGIN|END)[A-Z ]*-----", "", raw.replace("\\n", "\n"))
+    body = re.sub(r"[^A-Za-z0-9+/=]", "", body)
+    lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+    return "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
 
 
 # ── state ───────────────────────────────────────────────────────────────────────
