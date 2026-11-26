@@ -34,4 +34,4 @@ jobs:
         run: python pipeline/generate.py
       - name: Save
         if: always()
-        run: bash pipeline/commit.sh "puzzles: generated"
+        run: bash pipeline/commit.sh "puzzles - generated"

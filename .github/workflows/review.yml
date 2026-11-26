@@ -27,4 +27,4 @@ jobs:
         run: python pipeline/review.py
       - name: Save
         if: always()
-        run: bash pipeline/commit.sh "puzzles: review"
+        run: bash pipeline/commit.sh "puzzles - review"
