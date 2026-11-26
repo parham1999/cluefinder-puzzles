@@ -1,4 +1,4 @@
-"""Creates new puzzles with a free GitHub Models AI, checks them, encrypts them and
+"""Creates new puzzles with a free AI API (Google Gemini, Groq as backup), checks them, encrypts them and
 sends each one to the owner's review bot on Telegram.
 
 Runs daily on GitHub Actions (see .github/workflows/generate.yml).
@@ -10,8 +10,16 @@ import puzzlecrypt as pc
 from common import *  # noqa: F401,F403
 import review
 
-MODELS = ["openai/gpt-4.1", "openai/gpt-4o", "openai/gpt-4.1-mini"]
-ENDPOINT = "https://models.github.ai/inference/chat/completions"
+# Free AI providers (OpenAI-compatible APIs). Each needs its own free API key as a repository secret.
+PROVIDERS = [
+    {"name": "gemini", "key": "GEMINI_API_KEY",
+     "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+     "prefer": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"], "match": "flash"},
+    {"name": "groq", "key": "GROQ_API_KEY",
+     "base": "https://api.groq.com/openai/v1",
+     "prefer": ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"], "match": "gpt-oss"},
+]
+_model_cache = {}
 MAX_PER_RUN = int(os.environ.get("MAX_PER_RUN", "20"))
 BATCH = 5
 
@@ -40,36 +48,55 @@ BLACKLIST_FA = re.compile(r"(خدا|الله|پیامبر|پیغمبر|امام|
                           r"سکس|جنسی|بوسه|پرچم|سرود ملی)")
 
 
+def pick_model(pv, key):
+    """Uses the best preferred model that the provider currently lists."""
+    if pv["name"] in _model_cache:
+        return _model_cache[pv["name"]]
+    try:
+        ids = [m["id"].removeprefix("models/") for m in http_json(pv["base"] + "/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)["data"]]
+    except Exception as e:
+        print(f"{pv['name']}: cannot list models ({e}); using default")
+        ids = []
+    model = next((m for m in pv["prefer"] if m in ids), None) or next((m for m in ids if pv["match"] in m), None) or pv["prefer"][-1]
+    print(f"{pv['name']}: using model {model}")
+    _model_cache[pv["name"]] = model
+    return model
+
+
 def ask(messages, temperature=0.9):
-    """Calls GitHub Models (free with the workflow's GITHUB_TOKEN); tries a few models."""
+    """Asks the first free AI provider that has a key and answers with valid JSON."""
     if os.environ.get("MOCK_MODEL"):
         mock = json.load(open(os.environ["MOCK_MODEL"]))
         return mock["censor"] if "(censor)" in messages[0]["content"] else mock["gen"]
-    token = os.environ["GITHUB_TOKEN"]
-    last = None
-    for model in MODELS:
-        for attempt in range(2):
+    last = "no AI provider key set (GEMINI_API_KEY / GROQ_API_KEY)"
+    for pv in PROVIDERS:
+        key = os.environ.get(pv["key"], "").strip()
+        if not key:
+            continue
+        model = pick_model(pv, key)
+        for attempt in range(3):
             try:
-                r = http_json(ENDPOINT, {"model": model, "messages": messages, "temperature": temperature,
-                                         "response_format": {"type": "json_object"}, "max_tokens": 4000},
-                              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}, timeout=180)
+                r = http_json(pv["base"] + "/chat/completions",
+                              {"model": model, "messages": messages, "temperature": temperature,
+                               "response_format": {"type": "json_object"}},
+                              headers={"Authorization": f"Bearer {key}"}, timeout=240)
                 content = r["choices"][0]["message"]["content"] or ""
                 content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
                 try:
                     return json.loads(content)
                 except ValueError:
-                    raise ValueError(f"model answer is not JSON: {content[:300]!r} / finish={r['choices'][0].get('finish_reason')}")
+                    raise ValueError(f"answer is not JSON: {content[:200]!r}")
             except urllib.error.HTTPError as e:
-                last = f"{model}: HTTP {e.code} {e.read().decode(errors='replace')[:200]}"
+                last = f"{pv['name']}/{model}: HTTP {e.code} {e.read().decode(errors='replace')[:300]}"
                 print(last)
-                if e.code == 429:
-                    break          # daily limit for this model → next model
-                time.sleep(5)
-            except Exception as e:  # bad JSON, timeout …
-                last = f"{model}: {e}"
+                if e.code in (401, 403, 404):
+                    break                       # wrong key / model → next provider
+                time.sleep(20 if e.code == 429 else 5)
+            except Exception as e:
+                last = f"{pv['name']}/{model}: {e}"
                 print(last)
                 time.sleep(3)
-    raise RuntimeError(f"all models failed: {last}")
+    raise RuntimeError(f"all AI providers failed: {last}")
 
 
 GEN_SYSTEM = f"""You write puzzles for "Clue Finder", a daily guessing game for Iranian players (Persian) and international players (English).
