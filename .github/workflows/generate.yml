@@ -1,0 +1,37 @@
+name: Generate puzzles
+# Daily: writes new puzzles with the free GitHub Models AI and sends them to the review bot.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many puzzles to make now (max)"
+        default: "20"
+permissions:
+  contents: write
+  models: read
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q cryptography
+      - name: Generate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUZZLE_MASTER_KEY: ${{ secrets.PUZZLE_MASTER_KEY }}
+          PUZZLE_SIGNING_KEY: ${{ secrets.PUZZLE_SIGNING_KEY }}
+          REVIEW_BOT_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN }}
+          REVIEW_CHAT_ID: ${{ secrets.REVIEW_CHAT_ID }}
+          MAX_PER_RUN: ${{ github.event.inputs.count || '20' }}
+        run: python pipeline/generate.py
+      - name: Save
+        if: always()
+        run: bash pipeline/commit.sh "puzzles: generated"

@@ -1,0 +1,30 @@
+name: Review bot
+# Every 10 minutes: reads the owner's Telegram decisions, auto-approves old puzzles, republishes the feed.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q cryptography
+      - name: Review
+        env:
+          PUZZLE_MASTER_KEY: ${{ secrets.PUZZLE_MASTER_KEY }}
+          PUZZLE_SIGNING_KEY: ${{ secrets.PUZZLE_SIGNING_KEY }}
+          REVIEW_BOT_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN }}
+          REVIEW_CHAT_ID: ${{ secrets.REVIEW_CHAT_ID }}
+        run: python pipeline/review.py
+      - name: Save
+        if: always()
+        run: bash pipeline/commit.sh "puzzles: review"
