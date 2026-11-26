@@ -1,0 +1,21 @@
+name: Debug models
+on: workflow_dispatch
+permissions:
+  contents: read
+  models: read
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sS -i https://models.github.ai/inference/chat/completions \
+            -H "Authorization: Bearer $GITHUB_TOKEN" -H "Content-Type: application/json" \
+            -d '{"model":"openai/gpt-4.1-mini","messages":[{"role":"user","content":"Say hi in JSON {\"x\":..}"}],"response_format":{"type":"json_object"}}' | head -c 1500
+          echo; echo ---- python UA test
+          python3 -c "
+          import urllib.request,json,os
+          req=urllib.request.Request('https://models.github.ai/inference/chat/completions',data=json.dumps({'model':'openai/gpt-4.1-mini','messages':[{'role':'user','content':'hi'}]}).encode(),headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],'Content-Type':'application/json','User-Agent':'cluefinder-pipeline/1.0'})
+          print(urllib.request.urlopen(req).read()[:400])
+          "
