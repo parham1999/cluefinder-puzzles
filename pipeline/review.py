@@ -137,4 +137,8 @@ def main():
 
 
 if __name__ == "__main__":
+    missing = [k for k in ("PUZZLE_MASTER_KEY", "PUZZLE_SIGNING_KEY", "REVIEW_BOT_TOKEN", "REVIEW_CHAT_ID") if not os.environ.get(k)]
+    if missing and not os.environ.get("DRY_RUN"):
+        print("Secrets not set yet:", ", ".join(missing), "— skipping.")
+        sys.exit(0)
     main()
