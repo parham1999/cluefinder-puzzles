@@ -135,7 +135,11 @@ def http_json(url, payload=None, headers=None, timeout=120):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+        body = r.read()
+    try:
+        return json.loads(body)
+    except ValueError:
+        raise ValueError(f"not JSON (HTTP {r.status}): {body[:300]!r}")
 
 
 # ── Telegram ────────────────────────────────────────────────────────────────────

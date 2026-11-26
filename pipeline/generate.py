@@ -53,7 +53,12 @@ def ask(messages, temperature=0.9):
                 r = http_json(ENDPOINT, {"model": model, "messages": messages, "temperature": temperature,
                                          "response_format": {"type": "json_object"}, "max_tokens": 4000},
                               headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}, timeout=180)
-                return json.loads(r["choices"][0]["message"]["content"])
+                content = r["choices"][0]["message"]["content"] or ""
+                content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+                try:
+                    return json.loads(content)
+                except ValueError:
+                    raise ValueError(f"model answer is not JSON: {content[:300]!r} / finish={r['choices'][0].get('finish_reason')}")
             except urllib.error.HTTPError as e:
                 last = f"{model}: HTTP {e.code} {e.read().decode(errors='replace')[:200]}"
                 print(last)
