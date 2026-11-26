@@ -134,12 +134,22 @@ def answer_tag(master, s) -> str:
 def http_json(url, payload=None, headers=None, timeout=120):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    req.method = "POST" if data is not None else "GET"
+    with _OPENER.open(req, timeout=timeout) as r:
         body = r.read()
     try:
         return json.loads(body)
     except ValueError:
-        raise ValueError(f"not JSON (HTTP {r.status}): {body[:300]!r}")
+        raise ValueError(f"not JSON (HTTP {r.status}, {r.geturl()}): {body[:300]!r}")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never turn a POST into a GET by following a redirect silently."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"redirect to {newurl}", headers, fp)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 # ── Telegram ────────────────────────────────────────────────────────────────────

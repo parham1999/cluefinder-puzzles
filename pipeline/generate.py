@@ -52,7 +52,7 @@ def ask(messages, temperature=0.9):
             try:
                 r = http_json(ENDPOINT, {"model": model, "messages": messages, "temperature": temperature,
                                          "response_format": {"type": "json_object"}, "max_tokens": 4000},
-                              headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}, timeout=180)
+                              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}, timeout=180)
                 content = r["choices"][0]["message"]["content"] or ""
                 content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
                 try:
