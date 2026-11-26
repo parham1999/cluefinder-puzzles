@@ -133,7 +133,7 @@ def answer_tag(master, s) -> str:
 # ── HTTP ────────────────────────────────────────────────────────────────────────
 def http_json(url, payload=None, headers=None, timeout=120):
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "cluefinder-pipeline/1.0 (+https://github.com/parham1999/cluefinder-puzzles)", **(headers or {})})
     req.method = "POST" if data is not None else "GET"
     with _OPENER.open(req, timeout=timeout) as r:
         body = r.read()

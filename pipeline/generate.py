@@ -48,23 +48,23 @@ BLACKLIST_FA = re.compile(r"(خدا|الله|پیامبر|پیغمبر|امام|
                           r"سکس|جنسی|بوسه|پرچم|سرود ملی)")
 
 
-def pick_model(pv, key):
-    """Uses the best preferred model that the provider currently lists."""
+def models_for(pv, key):
+    """Preferred models that the provider currently lists (best first)."""
     if pv["name"] in _model_cache:
         return _model_cache[pv["name"]]
     try:
         ids = [m["id"].removeprefix("models/") for m in http_json(pv["base"] + "/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)["data"]]
     except Exception as e:
-        print(f"{pv['name']}: cannot list models ({e}); using default")
+        print(f"{pv['name']}: cannot list models ({e}); using defaults")
         ids = []
-    model = next((m for m in pv["prefer"] if m in ids), None) or next((m for m in ids if pv["match"] in m), None) or pv["prefer"][-1]
-    print(f"{pv['name']}: using model {model}")
-    _model_cache[pv["name"]] = model
-    return model
+    out = [m for m in pv["prefer"] if m in ids] or [m for m in ids if pv["match"] in m][:3] or pv["prefer"]
+    print(f"{pv['name']}: models {out}")
+    _model_cache[pv["name"]] = out
+    return out
 
 
 def ask(messages, temperature=0.9):
-    """Asks the first free AI provider that has a key and answers with valid JSON."""
+    """Asks the free AI providers in order (several models each) until one answers with valid JSON."""
     if os.environ.get("MOCK_MODEL"):
         mock = json.load(open(os.environ["MOCK_MODEL"]))
         return mock["censor"] if "(censor)" in messages[0]["content"] else mock["gen"]
@@ -73,29 +73,29 @@ def ask(messages, temperature=0.9):
         key = os.environ.get(pv["key"], "").strip()
         if not key:
             continue
-        model = pick_model(pv, key)
-        for attempt in range(3):
-            try:
-                r = http_json(pv["base"] + "/chat/completions",
-                              {"model": model, "messages": messages, "temperature": temperature,
-                               "response_format": {"type": "json_object"}},
-                              headers={"Authorization": f"Bearer {key}"}, timeout=240)
-                content = r["choices"][0]["message"]["content"] or ""
-                content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+        for model in models_for(pv, key):
+            for attempt in range(2):
                 try:
-                    return json.loads(content)
-                except ValueError:
-                    raise ValueError(f"answer is not JSON: {content[:200]!r}")
-            except urllib.error.HTTPError as e:
-                last = f"{pv['name']}/{model}: HTTP {e.code} {e.read().decode(errors='replace')[:300]}"
-                print(last)
-                if e.code in (401, 403, 404):
-                    break                       # wrong key / model → next provider
-                time.sleep(20 if e.code == 429 else 5)
-            except Exception as e:
-                last = f"{pv['name']}/{model}: {e}"
-                print(last)
-                time.sleep(3)
+                    r = http_json(pv["base"] + "/chat/completions",
+                                  {"model": model, "messages": messages, "temperature": temperature,
+                                   "response_format": {"type": "json_object"}},
+                                  headers={"Authorization": f"Bearer {key}"}, timeout=240)
+                    content = r["choices"][0]["message"]["content"] or ""
+                    content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+                    try:
+                        return json.loads(content)
+                    except ValueError:
+                        raise ValueError(f"answer is not JSON: {content[:200]!r}")
+                except urllib.error.HTTPError as e:
+                    last = f"{pv['name']}/{model}: HTTP {e.code} {e.read().decode(errors='replace')[:200]}"
+                    print(last.replace("\n", " "))
+                    if e.code in (400, 401, 403, 404, 503):
+                        break                   # this model can't serve us now → next model
+                    time.sleep(20 if e.code == 429 else 5)
+                except Exception as e:
+                    last = f"{pv['name']}/{model}: {e}"
+                    print(last)
+                    time.sleep(3)
     raise RuntimeError(f"all AI providers failed: {last}")
 
 
